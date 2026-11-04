@@ -49,6 +49,8 @@ export interface IssuerPowers {
   confidentialTransfer: { authority: string | null } | null;
   /** A program run on every transfer; the authority can set or change it (TransferHook). */
   transferHook: { authority: string | null; programId: string | null } | null;
+  /** Transfer fees: `configAuthority` can change the fee; `withdrawAuthority` can take withheld fees. */
+  transferFee: { configAuthority: string | null; withdrawAuthority: string | null } | null;
   /** Every extension name present on the mint, in the order the RPC reported them. */
   extensions: string[];
 }
@@ -94,12 +96,12 @@ function mintInfo(account: unknown): { info: Json; program: string | null } {
   if (data) {
     const parsed = asObj(data.parsed);
     if (parsed) {
-      // jsonParsed labels a mint "mint" and a token account "account"; grading a token account as
-      // a mint would silently report "no powers", so refuse anything that is not a mint.
-      if (parsed.type !== undefined && parsed.type !== "mint")
-        throw new Error(`issuer-powers: account is a "${String(parsed.type)}", not a mint`);
+      // jsonParsed always labels the account ("mint", "account", …); grading a token account as a
+      // mint would silently report "no powers", so a parsed envelope must say "mint".
+      if (parsed.type !== "mint") throw new Error(`issuer-powers: account is a "${String(parsed.type)}", not a mint`);
       const info = asObj(parsed.info);
       if (info) return { info, program: asStr(data.program) ?? asStr(root.owner) };
+      throw new Error("issuer-powers: mint envelope has no parsed info");
     }
   }
   // Already a parsed `info`. A mint has `decimals` as a top-level number; a token account keeps its
@@ -136,6 +138,7 @@ export function parseIssuerPowers(account: unknown): IssuerPowers {
   const hook = extState(info, "transferHook");
   const permDel = extState(info, "permanentDelegate");
   const closeAuth = extState(info, "mintCloseAuthority");
+  const fee = extState(info, "transferFeeConfig");
 
   const dec = info.decimals;
   const ts = scaled ? (scaled.newMultiplierEffectiveTimestamp as unknown) : undefined;
@@ -160,6 +163,7 @@ export function parseIssuerPowers(account: unknown): IssuerPowers {
       : null,
     confidentialTransfer: conf ? { authority: asStr(conf.authority) } : null,
     transferHook: hook ? { authority: asStr(hook.authority), programId: asStr(hook.programId) } : null,
+    transferFee: fee ? { configAuthority: asStr(fee.transferFeeConfigAuthority), withdrawAuthority: asStr(fee.withdrawWithheldAuthority) } : null,
     extensions: names,
   };
 }
@@ -179,6 +183,9 @@ export function assess(p: IssuerPowers): Assessment {
   if (p.scaledUiAmount?.authority) mutable.push(`scaledUiAmount authority=${short(p.scaledUiAmount.authority)} (restate every balance)`);
   if (p.transferHook?.authority) mutable.push(`transferHook authority=${short(p.transferHook.authority)} (set a program on every transfer${p.transferHook.programId ? `, currently ${short(p.transferHook.programId)}` : ""})`);
   if (p.confidentialTransfer?.authority) mutable.push(`confidentialTransfer authority=${short(p.confidentialTransfer.authority)} (configure confidential transfers)`);
+  if (p.transferFee?.configAuthority) mutable.push(`transferFee configAuthority=${short(p.transferFee.configAuthority)} (impose transfer fees)`);
+  if (p.transferFee?.withdrawAuthority) mutable.push(`transferFee withdrawAuthority=${short(p.transferFee.withdrawAuthority)} (withdraw withheld fees)`);
+  if (p.mintAuthority) mutable.push(`mintAuthority=${short(p.mintAuthority)} (mint new supply)`);
   if (p.closeAuthority) mutable.push(`closeAuthority=${short(p.closeAuthority)} (close the mint)`);
 
   const level: PowerLevel = custodial.length ? "custodial" : haltable.length ? "haltable" : mutable.length ? "mutable" : "benign";
@@ -208,6 +215,7 @@ function posture(p: IssuerPowers): Record<string, unknown> {
     scaledUiAmount: p.scaledUiAmount ? { authority: p.scaledUiAmount.authority } : null,
     confidentialTransfer: p.confidentialTransfer ? { authority: p.confidentialTransfer.authority } : null,
     transferHook: p.transferHook ? { authority: p.transferHook.authority, programId: p.transferHook.programId } : null,
+    transferFee: p.transferFee ? { configAuthority: p.transferFee.configAuthority, withdrawAuthority: p.transferFee.withdrawAuthority } : null,
     extensions: [...p.extensions].sort(),
   };
 }

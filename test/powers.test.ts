@@ -58,9 +58,33 @@ describe("assess", () => {
       scaledUiAmount: null,
       confidentialTransfer: null,
       transferHook: null,
+      transferFee: null,
       extensions: [],
     };
     expect(assess(bare).level).toBe("benign");
+  });
+
+  it("grades a mint-authority-only mint as mutable, not benign", () => {
+    const a = assess({ ...xstock, permanentDelegate: null, freezeAuthority: null, pausable: null, defaultAccountState: null, scaledUiAmount: null, transferHook: null, confidentialTransfer: null, closeAuthority: null, mintAuthority: "Mint1111111111111111111111111111111111111111" });
+    expect(a.level).toBe("mutable");
+    expect(a.mutable.some((s) => s.includes("mintAuthority"))).toBe(true);
+  });
+
+  it("reads and grades a transfer-fee config", () => {
+    const withFee = parseIssuerPowers({
+      data: {
+        program: "spl-token-2022",
+        parsed: {
+          type: "mint",
+          info: {
+            decimals: 6,
+            extensions: [{ extension: "transferFeeConfig", state: { transferFeeConfigAuthority: "Cfg11111111111111111111111111111111111111111", withdrawWithheldAuthority: "Wd111111111111111111111111111111111111111111" } }],
+          },
+        },
+      },
+    });
+    expect(withFee.transferFee).toEqual({ configAuthority: "Cfg11111111111111111111111111111111111111111", withdrawAuthority: "Wd111111111111111111111111111111111111111111" });
+    expect(assess(withFee).mutable.some((s) => s.includes("transferFee"))).toBe(true);
   });
 });
 
@@ -103,6 +127,11 @@ describe("parseIssuerPowers robustness", () => {
 
   it("rejects a base64 (non-jsonParsed) account", () => {
     expect(() => parseIssuerPowers({ data: ["AQID", "base64"], owner: "Tokenz" })).toThrow();
+  });
+
+  it("rejects a parsed envelope that does not say type mint", () => {
+    // type missing entirely, with a mint-shaped info — must still be refused.
+    expect(() => parseIssuerPowers({ data: { program: "spl-token-2022", parsed: { info: { decimals: 6, extensions: [] } } } })).toThrow(/not a mint/);
   });
 });
 
