@@ -1,0 +1,27 @@
+{
+  "name": "issuer-powers",
+  "version": "0.1.0",
+  "description": "Read what a Token-2022 mint's issuer can do to holders (permanent delegate, freeze, pause, scaled-UI, transfer hook) and grade it, before a venue lists the mint.",
+  "license": "Apache-2.0",
+  "author": "psyto <saito.hiroyuki@gmail.com>",
+  "repository": { "type": "git", "url": "git+https://github.com/psyto/issuer-powers.git" },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepare": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
+  }
+}
