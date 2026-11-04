@@ -48,13 +48,14 @@ For drift detection, `diffPowers` goes further than the named fields above: it c
 authority/delegate field across *all* of a mint's extensions (`extensionAuthorities`), so a
 rotation in an extension this library does not yet model by name is still caught.
 
-## Used by
+## Used in
 
-- [prebell](https://github.com/psyto) pins every stock mint it fronts to a recorded
-  `issuer-powers` profile, so an issuer changing a mint's powers (adding a delegate, rotating the
-  hook authority) breaks CI via `diffPowers` before prebell builds a swap against it. A pause is
-  operational rather than a posture change, so `diffPowers` ignores it; prebell's live check
-  asserts `paused === false` on its own.
+I use this in a front-end that gates tokenized-stock swaps: it pins every stock mint's
+`issuer-powers` profile, so an issuer changing a mint's powers (adding a delegate, rotating the
+hook authority) breaks CI via `diffPowers` before a swap is built against that mint. A pause is
+operational rather than a posture change, so `diffPowers` ignores it; the live check asserts
+`paused === false` on its own. In that set, xStocks mints grade `custodial` (a permanent
+delegate) and Ondo mints grade `haltable` (freeze only, no delegate).
 
 The companion harness [issuer-drill](https://github.com/psyto/issuer-drill) shows what one of
 these powers — the permanent delegate — does to a live lending market when it is used:
