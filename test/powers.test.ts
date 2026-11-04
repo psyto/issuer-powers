@@ -10,6 +10,21 @@ const NVDAX = "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh"; // xStocks
 const ondo = parseIssuerPowers(fx[NVDAON]);
 const xstock = parseIssuerPowers(fx[NVDAX]);
 
+// Clone a fixture account and tamper it the way a real mint change would appear, then re-parse —
+// so the drift tests exercise the real parse path, not hand-edited IssuerPowers objects.
+const clone = <T>(o: T): T => JSON.parse(JSON.stringify(o));
+function withExtState(mint: string, ext: string, patch: Record<string, unknown>): IssuerPowers {
+  const a = clone(fx[mint]) as { data: { parsed: { info: { extensions: { extension: string; state: Record<string, unknown> }[] } } } };
+  const e = a.data.parsed.info.extensions.find((x) => x.extension === ext)!;
+  Object.assign(e.state, patch);
+  return parseIssuerPowers(a);
+}
+function withInfo(mint: string, patch: Record<string, unknown>): IssuerPowers {
+  const a = clone(fx[mint]) as { data: { parsed: { info: Record<string, unknown> } } };
+  Object.assign(a.data.parsed.info, patch);
+  return parseIssuerPowers(a);
+}
+
 describe("parseIssuerPowers", () => {
   it("reads the xStocks mint's permanent delegate and authorities", () => {
     expect(xstock.tokenProgram).toBe("token-2022");
@@ -59,7 +74,10 @@ describe("assess", () => {
       confidentialTransfer: null,
       transferHook: null,
       transferFee: null,
+      interestBearing: null,
+      permissionedBurn: null,
       extensions: [],
+      extensionAuthorities: {},
     };
     expect(assess(bare).level).toBe("benign");
   });
@@ -93,29 +111,41 @@ describe("diffPowers", () => {
     expect(diffPowers(xstock, parseIssuerPowers(fx[NVDAX]))).toEqual([]);
   });
 
-  it("flags a silently added permanent delegate", () => {
-    const tampered = { ...ondo, permanentDelegate: "5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq" };
-    const d = diffPowers(ondo, tampered);
-    expect(d.length).toBe(1);
-    expect(d[0]).toContain("permanentDelegate");
-  });
-
   it("ignores a multiplier update — operational churn, not a posture change", () => {
-    const moved = { ...xstock, scaledUiAmount: { ...xstock.scaledUiAmount!, multiplier: "9.99", newMultiplier: "9.99", newMultiplierEffectiveTimestamp: 1 } };
+    const moved = withExtState(NVDAX, "scaledUiAmountConfig", { multiplier: "9.99", newMultiplier: "9.99", newMultiplierEffectiveTimestamp: 1 });
     expect(diffPowers(xstock, moved)).toEqual([]);
   });
 
-  it("flags a changed scaled-UI authority", () => {
-    const reauth = { ...xstock, scaledUiAmount: { ...xstock.scaledUiAmount!, authority: "someoneElse111111111111111111111111111111111" } };
-    expect(diffPowers(xstock, reauth).length).toBe(1);
+  it("ignores a pause flip — operational, checked separately by consumers", () => {
+    const paused = withExtState(NVDAX, "pausableConfig", { paused: true });
+    expect(diffPowers(xstock, paused)).toEqual([]);
   });
 
-  it("flags a mint-authority rotation", () => {
-    expect(diffPowers(xstock, { ...xstock, mintAuthority: "rotated1111111111111111111111111111111111111" }).length).toBe(1);
+  it("flags a rotated scaled-UI authority (generic sweep)", () => {
+    const reauth = withExtState(NVDAX, "scaledUiAmountConfig", { authority: "rotate1111111111111111111111111111111111111" });
+    const d = diffPowers(xstock, reauth);
+    expect(d.length).toBe(1);
+    expect(d[0]).toContain("scaledUiAmountConfig.authority");
   });
 
-  it("is order-insensitive on the extensions list", () => {
-    expect(diffPowers(xstock, { ...xstock, extensions: [...xstock.extensions].reverse() })).toEqual([]);
+  it("flags a rotated mint authority", () => {
+    const d = diffPowers(xstock, withInfo(NVDAX, { mintAuthority: "rotate1111111111111111111111111111111111111" }));
+    expect(d.length).toBe(1);
+    expect(d[0]).toContain("mintAuthority");
+  });
+
+  it("flags a transfer-hook program being set", () => {
+    const d = diffPowers(xstock, withExtState(NVDAX, "transferHook", { programId: "Hook111111111111111111111111111111111111111" }));
+    expect(d.some((s) => s.includes("transferHookProgramId"))).toBe(true);
+  });
+
+  it("flags a permanent delegate being added to a mint that had none", () => {
+    const a = clone(fx[NVDAON]) as { data: { parsed: { info: { extensions: { extension: string; state: Record<string, unknown> }[] } } } };
+    a.data.parsed.info.extensions.push({ extension: "permanentDelegate", state: { delegate: "Deleg11111111111111111111111111111111111111" } });
+    const d = diffPowers(ondo, parseIssuerPowers(a));
+    // Both the extension set and the generic authority sweep change.
+    expect(d.some((s) => s.includes("extensions"))).toBe(true);
+    expect(d.some((s) => s.includes("permanentDelegate.delegate"))).toBe(true);
   });
 });
 

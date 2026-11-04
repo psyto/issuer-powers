@@ -51,8 +51,19 @@ export interface IssuerPowers {
   transferHook: { authority: string | null; programId: string | null } | null;
   /** Transfer fees: `configAuthority` can change the fee; `withdrawAuthority` can take withheld fees. */
   transferFee: { configAuthority: string | null; withdrawAuthority: string | null } | null;
+  /** The rate authority can change the mint's interest rate, restating UI balances (InterestBearing). */
+  interestBearing: { rateAuthority: string | null } | null;
+  /** The authority must co-sign holder burns (PermissionedBurn). */
+  permissionedBurn: { authority: string | null } | null;
   /** Every extension name present on the mint, in the order the RPC reported them. */
   extensions: string[];
+  /**
+   * Every authority/delegate-like field found across all of the mint's extensions, keyed
+   * `"<extension>.<field>"`. The drift posture compares this, so a rotation of any authority in any
+   * extension — including one this library does not model by name — is caught without enumerating
+   * every extension. The curated fields above are for reading and grading; this is for drift.
+   */
+  extensionAuthorities: Record<string, string>;
 }
 
 export type PowerLevel = "custodial" | "haltable" | "mutable" | "benign";
@@ -139,6 +150,21 @@ export function parseIssuerPowers(account: unknown): IssuerPowers {
   const permDel = extState(info, "permanentDelegate");
   const closeAuth = extState(info, "mintCloseAuthority");
   const fee = extState(info, "transferFeeConfig");
+  const interest = extState(info, "interestBearingConfig");
+  const permBurn = extState(info, "permissionedBurnConfig");
+
+  // Generic sweep: collect every authority/delegate field across all extensions, so a drift check
+  // catches a rotation in any extension — even one not modelled by name above.
+  const extensionAuthorities: Record<string, string> = {};
+  for (const e of exts) {
+    const eo = asObj(e);
+    const name = eo && typeof eo.extension === "string" ? eo.extension : null;
+    const st = eo && asObj(eo.state);
+    if (!name || !st) continue;
+    for (const [k, v] of Object.entries(st)) {
+      if (/authority|delegate/i.test(k) && typeof v === "string" && v.length > 0) extensionAuthorities[`${name}.${k}`] = v;
+    }
+  }
 
   const dec = info.decimals;
   const ts = scaled ? (scaled.newMultiplierEffectiveTimestamp as unknown) : undefined;
@@ -164,7 +190,10 @@ export function parseIssuerPowers(account: unknown): IssuerPowers {
     confidentialTransfer: conf ? { authority: asStr(conf.authority) } : null,
     transferHook: hook ? { authority: asStr(hook.authority), programId: asStr(hook.programId) } : null,
     transferFee: fee ? { configAuthority: asStr(fee.transferFeeConfigAuthority), withdrawAuthority: asStr(fee.withdrawWithheldAuthority) } : null,
+    interestBearing: interest ? { rateAuthority: asStr(interest.rateAuthority) } : null,
+    permissionedBurn: permBurn ? { authority: asStr(permBurn.authority) } : null,
     extensions: names,
+    extensionAuthorities,
   };
 }
 
@@ -180,11 +209,13 @@ export function assess(p: IssuerPowers): Assessment {
   if (p.freezeAuthority) haltable.push(`freezeAuthority=${short(p.freezeAuthority)} (freeze any account)`);
   if (p.pausable?.authority) haltable.push(`pauseAuthority=${short(p.pausable.authority)} (halt all transfers${p.pausable.paused ? ", currently PAUSED" : ""})`);
   if (p.defaultAccountState === "frozen") haltable.push("defaultAccountState=frozen (new accounts start frozen)");
+  if (p.permissionedBurn?.authority) haltable.push(`permissionedBurn authority=${short(p.permissionedBurn.authority)} (must co-sign holder burns)`);
   if (p.scaledUiAmount?.authority) mutable.push(`scaledUiAmount authority=${short(p.scaledUiAmount.authority)} (restate every balance)`);
   if (p.transferHook?.authority) mutable.push(`transferHook authority=${short(p.transferHook.authority)} (set a program on every transfer${p.transferHook.programId ? `, currently ${short(p.transferHook.programId)}` : ""})`);
   if (p.confidentialTransfer?.authority) mutable.push(`confidentialTransfer authority=${short(p.confidentialTransfer.authority)} (configure confidential transfers)`);
   if (p.transferFee?.configAuthority) mutable.push(`transferFee configAuthority=${short(p.transferFee.configAuthority)} (impose transfer fees)`);
   if (p.transferFee?.withdrawAuthority) mutable.push(`transferFee withdrawAuthority=${short(p.transferFee.withdrawAuthority)} (withdraw withheld fees)`);
+  if (p.interestBearing?.rateAuthority) mutable.push(`interestBearing rateAuthority=${short(p.interestBearing.rateAuthority)} (change the interest rate)`);
   if (p.mintAuthority) mutable.push(`mintAuthority=${short(p.mintAuthority)} (mint new supply)`);
   if (p.closeAuthority) mutable.push(`closeAuthority=${short(p.closeAuthority)} (close the mint)`);
 
@@ -203,19 +234,17 @@ export function assess(p: IssuerPowers): Assessment {
  * and power changes, not routine churn.
  */
 function posture(p: IssuerPowers): Record<string, unknown> {
+  // Authorities (in extensions and top-level) with stable key order, so JSON.stringify is order-free.
+  const authorities: Record<string, string | null> = { mintAuthority: p.mintAuthority, freezeAuthority: p.freezeAuthority };
+  for (const k of Object.keys(p.extensionAuthorities).sort()) authorities[k] = p.extensionAuthorities[k]!;
   return {
     tokenProgram: p.tokenProgram,
     decimals: p.decimals,
-    mintAuthority: p.mintAuthority,
-    freezeAuthority: p.freezeAuthority,
-    permanentDelegate: p.permanentDelegate,
-    closeAuthority: p.closeAuthority,
     defaultAccountState: p.defaultAccountState,
-    pausable: p.pausable ? { authority: p.pausable.authority } : null,
-    scaledUiAmount: p.scaledUiAmount ? { authority: p.scaledUiAmount.authority } : null,
-    confidentialTransfer: p.confidentialTransfer ? { authority: p.confidentialTransfer.authority } : null,
-    transferHook: p.transferHook ? { authority: p.transferHook.authority, programId: p.transferHook.programId } : null,
-    transferFee: p.transferFee ? { configAuthority: p.transferFee.configAuthority, withdrawAuthority: p.transferFee.withdrawAuthority } : null,
+    // A set transfer-hook program is posture (not an authority field); the paused flag and the
+    // scaled-UI multiplier are operational, so they are deliberately left out.
+    transferHookProgramId: p.transferHook?.programId ?? null,
+    authorities,
     extensions: [...p.extensions].sort(),
   };
 }

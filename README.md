@@ -34,14 +34,19 @@ assess(p).summary; // "custodial: permanentDelegate=5aMN…HFvEq (move or burn a
 ## What the grades mean
 
 - **custodial** — the issuer can take or move a holder's balance: a permanent delegate.
-- **haltable** — the issuer can lock or stop transfers: freeze authority, pause authority, or a
-  default-frozen account state.
-- **mutable** — the issuer can silently change value or transferability: the scaled-UI multiplier,
-  the transfer-hook authority, or a mint close authority.
+- **haltable** — the issuer can lock or stop transfers: freeze authority, pause authority, a
+  default-frozen account state, or a permissioned-burn authority (co-signs holder burns).
+- **mutable** — the issuer can silently change value, supply or transferability: the scaled-UI
+  multiplier authority, the transfer-hook authority, the transfer-fee config/withdraw authorities,
+  the interest-bearing rate authority, the mint authority (new supply), or the mint close authority.
 - **benign** — none of the above.
 
 The grade is a fact about the mint, not a verdict on the issuer. A venue decides what it will
 front; this tells it what it is fronting.
+
+For drift detection, `diffPowers` goes further than the named fields above: it compares every
+authority/delegate field across *all* of a mint's extensions (`extensionAuthorities`), so a
+rotation in an extension this library does not yet model by name is still caught.
 
 ## Used by
 
