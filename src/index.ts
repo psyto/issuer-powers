@@ -78,6 +78,13 @@ function asStr(v: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
+/** A decimal that an RPC may serialize as a string or (rarely) a number. */
+function asNumStr(v: unknown): string | null {
+  if (typeof v === "string" && v.length > 0) return v;
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  return null;
+}
+
 /** Dig from a `getAccountInfo` `value` (or a bare parsed `info`) to the mint's parsed info. */
 function mintInfo(account: unknown): { info: Json; program: string | null } {
   const root = asObj(account);
@@ -86,12 +93,19 @@ function mintInfo(account: unknown): { info: Json; program: string | null } {
   const data = asObj(root.data);
   if (data) {
     const parsed = asObj(data.parsed);
-    const info = parsed && asObj(parsed.info);
-    if (info) return { info, program: asStr(data.program) ?? asStr(root.owner) };
+    if (parsed) {
+      // jsonParsed labels a mint "mint" and a token account "account"; grading a token account as
+      // a mint would silently report "no powers", so refuse anything that is not a mint.
+      if (parsed.type !== undefined && parsed.type !== "mint")
+        throw new Error(`issuer-powers: account is a "${String(parsed.type)}", not a mint`);
+      const info = asObj(parsed.info);
+      if (info) return { info, program: asStr(data.program) ?? asStr(root.owner) };
+    }
   }
-  // Already a parsed `info` (has a `decimals` or `extensions` field).
-  if ("decimals" in root || "extensions" in root) return { info: root, program: null };
-  throw new Error("issuer-powers: no parsed mint info found (expected jsonParsed encoding)");
+  // Already a parsed `info`. A mint has `decimals` as a top-level number; a token account keeps its
+  // decimals inside `tokenAmount`, so a top-level numeric `decimals` is what tells the two apart.
+  if (typeof root.decimals === "number") return { info: root, program: null };
+  throw new Error("issuer-powers: no parsed mint info found (expected a jsonParsed mint account)");
 }
 
 function tokenProgramOf(program: string | null): TokenProgram {
@@ -139,8 +153,8 @@ export function parseIssuerPowers(account: unknown): IssuerPowers {
     scaledUiAmount: scaled
       ? {
           authority: asStr(scaled.authority),
-          multiplier: asStr(scaled.multiplier) ?? "1",
-          newMultiplier: asStr(scaled.newMultiplier) ?? (asStr(scaled.multiplier) ?? "1"),
+          multiplier: asNumStr(scaled.multiplier) ?? "1",
+          newMultiplier: asNumStr(scaled.newMultiplier) ?? (asNumStr(scaled.multiplier) ?? "1"),
           newMultiplierEffectiveTimestamp: typeof ts === "number" ? ts : 0,
         }
       : null,
@@ -164,6 +178,7 @@ export function assess(p: IssuerPowers): Assessment {
   if (p.defaultAccountState === "frozen") haltable.push("defaultAccountState=frozen (new accounts start frozen)");
   if (p.scaledUiAmount?.authority) mutable.push(`scaledUiAmount authority=${short(p.scaledUiAmount.authority)} (restate every balance)`);
   if (p.transferHook?.authority) mutable.push(`transferHook authority=${short(p.transferHook.authority)} (set a program on every transfer${p.transferHook.programId ? `, currently ${short(p.transferHook.programId)}` : ""})`);
+  if (p.confidentialTransfer?.authority) mutable.push(`confidentialTransfer authority=${short(p.confidentialTransfer.authority)} (configure confidential transfers)`);
   if (p.closeAuthority) mutable.push(`closeAuthority=${short(p.closeAuthority)} (close the mint)`);
 
   const level: PowerLevel = custodial.length ? "custodial" : haltable.length ? "haltable" : mutable.length ? "mutable" : "benign";
@@ -175,28 +190,41 @@ export function assess(p: IssuerPowers): Assessment {
 }
 
 /**
- * Fields in `actual` that differ from `expected`. Use it in CI to pin a mint's powers and catch an
- * issuer silently adding a delegate, changing the hook authority, or flipping the pause. Returns an
- * empty array when the two agree.
+ * The drift-relevant posture of a mint: which powers exist and who holds them. It deliberately
+ * leaves out values that move in normal operation — the current and pending scaled-UI multiplier
+ * and its timestamp (these tokens rebase), and the live `paused` flag — so a pin tracks authority
+ * and power changes, not routine churn.
+ */
+function posture(p: IssuerPowers): Record<string, unknown> {
+  return {
+    tokenProgram: p.tokenProgram,
+    decimals: p.decimals,
+    mintAuthority: p.mintAuthority,
+    freezeAuthority: p.freezeAuthority,
+    permanentDelegate: p.permanentDelegate,
+    closeAuthority: p.closeAuthority,
+    defaultAccountState: p.defaultAccountState,
+    pausable: p.pausable ? { authority: p.pausable.authority } : null,
+    scaledUiAmount: p.scaledUiAmount ? { authority: p.scaledUiAmount.authority } : null,
+    confidentialTransfer: p.confidentialTransfer ? { authority: p.confidentialTransfer.authority } : null,
+    transferHook: p.transferHook ? { authority: p.transferHook.authority, programId: p.transferHook.programId } : null,
+    extensions: [...p.extensions].sort(),
+  };
+}
+
+/**
+ * Posture fields in `actual` that differ from `expected`. Use it in CI to pin a mint and catch an
+ * issuer silently adding a delegate, rotating the mint authority, or changing the hook or scaled-UI
+ * authority. It ignores operational churn (the multiplier value, the pause flag), so it does not
+ * cry wolf on a rebase. Returns an empty array when the two postures agree.
  */
 export function diffPowers(expected: IssuerPowers, actual: IssuerPowers): string[] {
-  const out: string[] = [];
+  const e = posture(expected);
+  const a = posture(actual);
   const j = (v: unknown) => JSON.stringify(v);
-  const keys: (keyof IssuerPowers)[] = [
-    "tokenProgram",
-    "decimals",
-    "freezeAuthority",
-    "permanentDelegate",
-    "pausable",
-    "defaultAccountState",
-    "closeAuthority",
-    "scaledUiAmount",
-    "confidentialTransfer",
-    "transferHook",
-    "extensions",
-  ];
-  for (const k of keys) {
-    if (j(expected[k]) !== j(actual[k])) out.push(`${k}: expected ${j(expected[k])}, got ${j(actual[k])}`);
+  const out: string[] = [];
+  for (const k of Object.keys(e)) {
+    if (j(e[k]) !== j(a[k])) out.push(`${k}: expected ${j(e[k])}, got ${j(a[k])}`);
   }
   return out;
 }

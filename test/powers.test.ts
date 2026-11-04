@@ -75,6 +75,35 @@ describe("diffPowers", () => {
     expect(d.length).toBe(1);
     expect(d[0]).toContain("permanentDelegate");
   });
+
+  it("ignores a multiplier update — operational churn, not a posture change", () => {
+    const moved = { ...xstock, scaledUiAmount: { ...xstock.scaledUiAmount!, multiplier: "9.99", newMultiplier: "9.99", newMultiplierEffectiveTimestamp: 1 } };
+    expect(diffPowers(xstock, moved)).toEqual([]);
+  });
+
+  it("flags a changed scaled-UI authority", () => {
+    const reauth = { ...xstock, scaledUiAmount: { ...xstock.scaledUiAmount!, authority: "someoneElse111111111111111111111111111111111" } };
+    expect(diffPowers(xstock, reauth).length).toBe(1);
+  });
+
+  it("flags a mint-authority rotation", () => {
+    expect(diffPowers(xstock, { ...xstock, mintAuthority: "rotated1111111111111111111111111111111111111" }).length).toBe(1);
+  });
+
+  it("is order-insensitive on the extensions list", () => {
+    expect(diffPowers(xstock, { ...xstock, extensions: [...xstock.extensions].reverse() })).toEqual([]);
+  });
+});
+
+describe("parseIssuerPowers robustness", () => {
+  it("rejects a token account rather than grading it benign", () => {
+    const tokenAccount = { data: { program: "spl-token-2022", parsed: { type: "account", info: { mint: "x", owner: "y", extensions: [] } } } };
+    expect(() => parseIssuerPowers(tokenAccount)).toThrow(/not a mint/);
+  });
+
+  it("rejects a base64 (non-jsonParsed) account", () => {
+    expect(() => parseIssuerPowers({ data: ["AQID", "base64"], owner: "Tokenz" })).toThrow();
+  });
 });
 
 describe("readIssuerPowers", () => {
