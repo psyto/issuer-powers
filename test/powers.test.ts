@@ -139,6 +139,18 @@ describe("diffPowers", () => {
     expect(d.some((s) => s.includes("transferHookProgramId"))).toBe(true);
   });
 
+  it("flags a rotated authority nested inside an unmodelled extension", () => {
+    const base = clone(fx[NVDAX]) as { data: { parsed: { info: { extensions: unknown[] } } } };
+    const mk = (auth: string) => {
+      const a = clone(base);
+      a.data.parsed.info.extensions.push({ extension: "futureExtension", state: { config: { authority: auth } } });
+      return parseIssuerPowers(a);
+    };
+    const d = diffPowers(mk("Aaaa111111111111111111111111111111111111111"), mk("Bbbb111111111111111111111111111111111111111"));
+    expect(d.length).toBe(1);
+    expect(d[0]).toContain("futureExtension.config.authority");
+  });
+
   it("flags a permanent delegate being added to a mint that had none", () => {
     const a = clone(fx[NVDAON]) as { data: { parsed: { info: { extensions: { extension: string; state: Record<string, unknown> }[] } } } };
     a.data.parsed.info.extensions.push({ extension: "permanentDelegate", state: { delegate: "Deleg11111111111111111111111111111111111111" } });

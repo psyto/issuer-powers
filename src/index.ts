@@ -127,6 +127,22 @@ function tokenProgramOf(program: string | null): TokenProgram {
   return "unknown";
 }
 
+/** Walk an extension's `state` (objects and arrays, any depth) collecting every authority/delegate
+ * string field, keyed by its dotted path, so a nested authority can't escape the drift sweep. */
+function sweepAuthorities(prefix: string, node: unknown, out: Record<string, string>): void {
+  if (Array.isArray(node)) {
+    node.forEach((el, i) => sweepAuthorities(`${prefix}.${i}`, el, out));
+    return;
+  }
+  const o = asObj(node);
+  if (!o) return;
+  for (const [k, v] of Object.entries(o)) {
+    const path = `${prefix}.${k}`;
+    if (/authority|delegate/i.test(k) && typeof v === "string" && v.length > 0) out[path] = v;
+    else if (typeof v === "object" && v !== null) sweepAuthorities(path, v, out);
+  }
+}
+
 function extState(info: Json, name: string): Json | null {
   const exts = Array.isArray(info.extensions) ? info.extensions : [];
   for (const e of exts) {
@@ -161,9 +177,7 @@ export function parseIssuerPowers(account: unknown): IssuerPowers {
     const name = eo && typeof eo.extension === "string" ? eo.extension : null;
     const st = eo && asObj(eo.state);
     if (!name || !st) continue;
-    for (const [k, v] of Object.entries(st)) {
-      if (/authority|delegate/i.test(k) && typeof v === "string" && v.length > 0) extensionAuthorities[`${name}.${k}`] = v;
-    }
+    sweepAuthorities(name, st, extensionAuthorities);
   }
 
   const dec = info.decimals;
