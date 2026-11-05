@@ -16,6 +16,20 @@ standing powers over every holder:
 This library reads those powers and grades them. No runtime dependencies; `parseIssuerPowers` is
 pure, only `readIssuerPowers` does network.
 
+## Install
+
+Not on npm yet — depend on the git repo (the `prepare` script builds it on install):
+
+```sh
+npm i github:psyto/issuer-powers
+# or pin a commit: npm i github:psyto/issuer-powers#<commit>
+```
+
+ESM only. `readIssuerPowers` uses the global `fetch` (Node 18+); on older runtimes pass a `fetch`
+as the third argument. `parseIssuerPowers`, `assess` and `diffPowers` need no network at all.
+
+## Use
+
 ```ts
 import { readIssuerPowers, assess, diffPowers } from "issuer-powers";
 
