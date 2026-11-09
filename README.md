@@ -31,17 +31,18 @@ as the third argument. `parseIssuerPowers`, `assess` and `diffPowers` need no ne
 ## Use
 
 ```ts
-import { readIssuerPowers, assess, diffPowers } from "issuer-powers";
+import { readIssuerPowers, assess, gating, diffPowers } from "issuer-powers";
 
 const p = await readIssuerPowers("XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB", RPC); // TSLAx
 assess(p).level;   // "custodial" — it has a permanent delegate
-assess(p).summary; // "custodial: permanentDelegate=5aMN…HFvEq (move or burn any holder's balance); …"
+assess(p).summary; // "custodial: permanentDelegate=5aMN…FvEq (move or burn any holder's balance); …"
 ```
 
 | function | |
 |---|---|
 | `parseIssuerPowers(account)` | pure; takes a `getAccountInfo` `value` in `jsonParsed` encoding (or a bare parsed `info`) and returns an `IssuerPowers` |
 | `assess(powers)` | grades the powers; `level` is `custodial` \| `haltable` \| `mutable` \| `benign` (the strongest category present) |
+| `gating(powers)` | where the mint gates transfers: `non-transferable` \| `per-transfer` \| `per-holder` \| `latent` \| `boundary` \| `unknown` |
 | `diffPowers(expected, actual)` | the fields that changed; pin a mint's powers in CI and catch an issuer silently adding a delegate or changing the hook authority |
 | `readIssuerPowers(mint, rpc, fetchFn?)` | fetch the mint over RPC (`jsonParsed`) and parse it |
 
@@ -57,6 +58,34 @@ assess(p).summary; // "custodial: permanentDelegate=5aMN…HFvEq (move or burn a
 
 The grade is a fact about the mint, not a verdict on the issuer. A venue decides what it will
 front; this tells it what it is fronting.
+
+## Is it boundary-gated?
+
+A common design for composable regulated tokens checks eligibility only where the token is minted
+and redeemed, and lets it move freely between holders. `gating(powers)` says whether a mint
+actually works that way, strictest first:
+
+| `model` | meaning |
+|---|---|
+| `non-transferable` | the token cannot move between holders (NonTransferable) |
+| `per-transfer` | a program the issuer chose runs on every move (it may check anything, or nothing) |
+| `per-holder` | new accounts start frozen; the issuer thaws each holder |
+| `latent` | no gate today, but one signature can add one: the hook authority sets a program, or the freeze authority flips new accounts to frozen |
+| `boundary` | none of the above: nothing is checked on transfer |
+| `unknown` | no gate found, but the mint could not be fully read (unparseable extension, unknown token program) |
+
+```ts
+gating(p); // { model: "latent", reasons: ["transferHook authority=5aMN…FvEq can set a per-transfer program",
+           //   "freezeAuthority=JDq1…xJNs can flip defaultAccountState to frozen"] }
+```
+
+Both the xStocks and Ondo mints in the fixtures are `latent`: they move freely today, and each
+keeps a hook authority and a freeze authority that could gate every transfer, or every new holder,
+later. A legacy SPL mint such as USDC has neither extension and reads `boundary`. `reasons` lists
+every gate that applies, not only the strictest. `gating` only covers ordinary
+transfers — a `boundary` mint can still carry a freeze authority, a pause authority or a
+permanent delegate, which `assess` reports. Pin the hook authority with `diffPowers` if you rely
+on a mint staying ungated.
 
 For drift detection, `diffPowers` goes further than the named fields above: it compares every
 authority/delegate field across *all* of a mint's extensions (`extensionAuthorities`), so a

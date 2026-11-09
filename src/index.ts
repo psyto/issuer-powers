@@ -213,6 +213,70 @@ export function parseIssuerPowers(account: unknown): IssuerPowers {
 
 const short = (k: string | null): string => (k ? `${k.slice(0, 4)}…${k.slice(-4)}` : "none");
 
+/**
+ * Where a mint gates holder-to-holder transfers, strictest first:
+ * - `non-transferable` — the token cannot move between holders at all (NonTransferable).
+ * - `per-transfer` — a transfer-hook program the issuer chose runs on every move.
+ * - `per-holder` — new accounts start frozen, so the issuer thaws each holder before it can receive.
+ * - `latent` — no gate today, but one signature can add one: a transfer-hook authority can set a
+ *   program, or the freeze authority can flip the default account state to frozen.
+ * - `boundary` — none of the above: eligibility is not checked on transfer, only where the token is
+ *   minted and redeemed (and, after the fact, by any freeze authority).
+ * - `unknown` — no gate was found, but the mint could not be fully read (unparseable extension or
+ *   unknown token program), so `latent` or `boundary` cannot be claimed.
+ */
+export type GatingModel = "non-transferable" | "per-transfer" | "per-holder" | "latent" | "boundary" | "unknown";
+
+export interface Gating {
+  model: GatingModel;
+  /** Every gate that applies, not only the one that set `model` (empty for `boundary`). */
+  reasons: string[];
+}
+
+/**
+ * Classify how the mint gates holder-to-holder transfers. This is about ordinary transfers only:
+ * a freeze authority, pause authority or permanent delegate can still intervene on a `boundary`
+ * mint, and `assess` reports those.
+ */
+export function gating(p: IssuerPowers): Gating {
+  const reasons: string[] = [];
+  const unreadable = p.tokenProgram === "unknown" || p.extensions.includes("unparseableExtension");
+  if (p.tokenProgram === "unknown") reasons.push("token program unknown");
+  if (p.extensions.includes("unparseableExtension")) reasons.push("an extension could not be parsed");
+
+  const nonTransferable = p.extensions.includes("nonTransferable");
+  if (nonTransferable) reasons.push("nonTransferable extension");
+  const hookProgram = p.transferHook?.programId ?? null;
+  if (hookProgram) reasons.push(`transferHook program=${short(hookProgram)} runs on every transfer`);
+  const defaultFrozen = p.defaultAccountState === "frozen";
+  if (defaultFrozen) {
+    reasons.push(
+      p.freezeAuthority
+        ? `defaultAccountState=frozen (freezeAuthority=${short(p.freezeAuthority)} must thaw each new holder)`
+        : "defaultAccountState=frozen with no freeze authority (no new holder can ever be thawed)",
+    );
+  }
+  const hookLatent = !hookProgram && !!p.transferHook?.authority;
+  if (hookLatent) reasons.push(`transferHook authority=${short(p.transferHook!.authority)} can set a per-transfer program`);
+  const stateLatent = !defaultFrozen && p.defaultAccountState !== null && !!p.freezeAuthority;
+  if (stateLatent) reasons.push(`freezeAuthority=${short(p.freezeAuthority)} can flip defaultAccountState to frozen`);
+
+  // A gate that was read is certain even if another extension was not; only the weaker verdicts
+  // (latent, boundary) depend on having read everything.
+  const model: GatingModel = nonTransferable
+    ? "non-transferable"
+    : hookProgram
+      ? "per-transfer"
+      : defaultFrozen
+        ? "per-holder"
+        : unreadable
+          ? "unknown"
+          : hookLatent || stateLatent
+            ? "latent"
+            : "boundary";
+  return { model, reasons };
+}
+
 /** Grade the powers. The level is the strongest category present. */
 export function assess(p: IssuerPowers): Assessment {
   const custodial: string[] = [];
