@@ -30,12 +30,16 @@ as the third argument. `parseIssuerPowers`, `assess` and `diffPowers` need no ne
 
 ## Use
 
+Save as `check.mjs` (the package is ESM, and `npm init -y` sets `"type": "commonjs"`, so a `.js`
+file would not load it) and run `node check.mjs`:
+
 ```ts
 import { readIssuerPowers, assess, gating, diffPowers } from "issuer-powers";
 
+const RPC = "https://api.mainnet-beta.solana.com"; // any mainnet RPC; read-only
 const p = await readIssuerPowers("XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB", RPC); // TSLAx
-assess(p).level;   // "custodial" — it has a permanent delegate
-assess(p).summary; // "custodial: permanentDelegate=5aMN…FvEq (move or burn any holder's balance); …"
+console.log(assess(p).level);   // "custodial" — it has a permanent delegate
+console.log(assess(p).summary); // "custodial: permanentDelegate=5aMN…FvEq (move or burn any holder's balance); …"
 ```
 
 | function | |
@@ -43,7 +47,7 @@ assess(p).summary; // "custodial: permanentDelegate=5aMN…FvEq (move or burn an
 | `parseIssuerPowers(account)` | pure; takes a `getAccountInfo` `value` in `jsonParsed` encoding (or a bare parsed `info`) and returns an `IssuerPowers` |
 | `assess(powers)` | grades the powers; `level` is `custodial` \| `haltable` \| `mutable` \| `benign` (the strongest category present) |
 | `gating(powers)` | where the mint gates transfers: `non-transferable` \| `per-transfer` \| `per-holder` \| `latent` \| `boundary` \| `unknown` |
-| `diffPowers(expected, actual)` | the fields that changed; pin a mint's powers in CI and catch an issuer silently adding a delegate or changing the hook authority |
+| `diffPowers(expected, actual)` | the fields that changed, one line per authority (`authorities.permanentDelegate.delegate: expected null, got "…"`) and per extension set (`extensions: +permanentDelegate`); pin a mint's powers in CI and catch an issuer silently adding a delegate or changing the hook authority |
 | `readIssuerPowers(mint, rpc, fetchFn?)` | fetch the mint over RPC (`jsonParsed`) and parse it |
 
 ## What the grades mean

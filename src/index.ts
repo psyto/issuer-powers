@@ -339,7 +339,23 @@ export function diffPowers(expected: IssuerPowers, actual: IssuerPowers): string
   const j = (v: unknown) => JSON.stringify(v);
   const out: string[] = [];
   for (const k of Object.keys(e)) {
-    if (j(e[k]) !== j(a[k])) out.push(`${k}: expected ${j(e[k])}, got ${j(a[k])}`);
+    if (k === "authorities") {
+      // One line per authority that changed, not the whole map: a CI log should name the power.
+      const ea = e[k] as Record<string, string | null>;
+      const aa = a[k] as Record<string, string | null>;
+      for (const f of [...new Set([...Object.keys(ea), ...Object.keys(aa)])].sort()) {
+        const x = ea[f] ?? null;
+        const y = aa[f] ?? null;
+        if (x !== y) out.push(`authorities.${f}: expected ${j(x)}, got ${j(y)}`);
+      }
+    } else if (k === "extensions") {
+      const ex = e[k] as string[];
+      const ax = a[k] as string[];
+      const added = ax.filter((x) => !ex.includes(x));
+      const removed = ex.filter((x) => !ax.includes(x));
+      if (added.length || removed.length)
+        out.push(`extensions: ${[...added.map((x) => `+${x}`), ...removed.map((x) => `-${x}`)].join(" ")}`);
+    } else if (j(e[k]) !== j(a[k])) out.push(`${k}: expected ${j(e[k])}, got ${j(a[k])}`);
   }
   return out;
 }

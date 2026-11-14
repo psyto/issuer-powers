@@ -158,6 +158,11 @@ describe("diffPowers", () => {
     // Both the extension set and the generic authority sweep change.
     expect(d.some((s) => s.includes("extensions"))).toBe(true);
     expect(d.some((s) => s.includes("permanentDelegate.delegate"))).toBe(true);
+    // Each change on its own line, naming the power rather than dumping the whole authority map.
+    expect(d).toEqual([
+      'authorities.permanentDelegate.delegate: expected null, got "Deleg11111111111111111111111111111111111111"',
+      "extensions: +permanentDelegate",
+    ]);
   });
 });
 
