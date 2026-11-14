@@ -30,8 +30,8 @@ as the third argument. `parseIssuerPowers`, `assess` and `diffPowers` need no ne
 
 ## Use
 
-Save as `check.mjs` (the package is ESM, and `npm init -y` sets `"type": "commonjs"`, so a `.js`
-file would not load it) and run `node check.mjs`:
+Save as `check.mjs` (the package is ESM; a package from `npm init -y` has no `"type"`, so Node reads a
+`.js` file there as CommonJS and the import fails) and run `node check.mjs`:
 
 ```ts
 import { readIssuerPowers, assess, gating, diffPowers } from "issuer-powers";

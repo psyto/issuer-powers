@@ -151,6 +151,16 @@ describe("diffPowers", () => {
     expect(d[0]).toContain("futureExtension.config.authority");
   });
 
+  it("reports a changed extension set on one line, added and removed", () => {
+    const a = clone(fx[NVDAX]) as { data: { parsed: { info: { extensions: { extension: string; state?: unknown }[] } } } };
+    const exts = a.data.parsed.info.extensions;
+    const dropped = exts.find((x) => x.extension === "metadataPointer")!.extension;
+    a.data.parsed.info.extensions = exts.filter((x) => x.extension !== dropped);
+    a.data.parsed.info.extensions.push({ extension: "memoTransfer", state: {} }, { extension: "cpiGuard", state: {} });
+    const d = diffPowers(xstock, parseIssuerPowers(a)).filter((s) => s.startsWith("extensions"));
+    expect(d).toEqual([`extensions: +cpiGuard +memoTransfer -${dropped}`]);
+  });
+
   it("flags a permanent delegate being added to a mint that had none", () => {
     const a = clone(fx[NVDAON]) as { data: { parsed: { info: { extensions: { extension: string; state: Record<string, unknown> }[] } } } };
     a.data.parsed.info.extensions.push({ extension: "permanentDelegate", state: { delegate: "Deleg11111111111111111111111111111111111111" } });
