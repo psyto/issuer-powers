@@ -329,7 +329,7 @@ function posture(p: IssuerPowers): Record<string, unknown> {
 
 /**
  * Posture fields in `actual` that differ from `expected`. Use it in CI to pin a mint and catch an
- * issuer silently adding a delegate, rotating the mint authority, or changing the hook or scaled-UI
+ * issuer silently rotating the permanent delegate or the mint authority, or changing the hook or scaled-UI
  * authority. It ignores operational churn (the multiplier value, the pause flag), so it does not
  * cry wolf on a rebase. Returns an empty array when the two postures agree.
  */

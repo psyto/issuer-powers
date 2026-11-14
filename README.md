@@ -47,7 +47,7 @@ console.log(assess(p).summary); // "custodial: permanentDelegate=5aMN…FvEq (mo
 | `parseIssuerPowers(account)` | pure; takes a `getAccountInfo` `value` in `jsonParsed` encoding (or a bare parsed `info`) and returns an `IssuerPowers` |
 | `assess(powers)` | grades the powers; `level` is `custodial` \| `haltable` \| `mutable` \| `benign` (the strongest category present) |
 | `gating(powers)` | where the mint gates transfers: `non-transferable` \| `per-transfer` \| `per-holder` \| `latent` \| `boundary` \| `unknown` |
-| `diffPowers(expected, actual)` | the fields that changed, one line per authority (`authorities.permanentDelegate.delegate: expected null, got "…"`) and per extension set (`extensions: +permanentDelegate`); pin a mint's powers in CI and catch an issuer silently adding a delegate or changing the hook authority |
+| `diffPowers(expected, actual)` | the fields that changed, one line per authority (`authorities.permanentDelegate.delegate: expected "…", got "…"`) and per extension set (`extensions: +transferHook`); pin a mint's powers in CI and catch an issuer silently rotating the permanent delegate or changing the hook authority. (A Token-2022 mint cannot gain a permanent delegate after it is initialized, but the delegate can hand the power to another address.) |
 | `readIssuerPowers(mint, rpc, fetchFn?)` | fetch the mint over RPC (`jsonParsed`) and parse it |
 
 ## What the grades mean
@@ -98,7 +98,7 @@ rotation in an extension this library does not yet model by name is still caught
 ## Used in
 
 I use this in a front-end that gates tokenized-stock swaps: it pins every stock mint's
-`issuer-powers` profile, so an issuer changing a mint's powers (adding a delegate, rotating the
+`issuer-powers` profile, so an issuer changing a mint's powers (rotating the delegate or the
 hook authority) breaks CI via `diffPowers` before a swap is built against that mint. A pause is
 operational rather than a posture change, so `diffPowers` ignores it; the live check asserts
 `paused === false` on its own. In that set, xStocks mints grade `custodial` (a permanent
